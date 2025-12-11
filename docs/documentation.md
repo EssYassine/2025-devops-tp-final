@@ -131,9 +131,9 @@ git push -u origin feature/<nom>
 ```
 
 > **📌 Notes :** 
-- Pour l’instant, aucune branche feature n’a encore été créée.
-- Tout développement doit passer par develop avant de fusionner dans main.
-- Les merges vers main déclencheront la création d’un tag Git et d’une release GitHub.
+> - Pour l’instant, aucune branche feature n’a encore été créée.
+> - Tout développement doit passer par develop avant de fusionner dans main.
+> - Les merges vers main déclencheront la création d’un tag Git et d’une release GitHub.
 
 #### Workflow recommandé
 
@@ -160,3 +160,138 @@ git push -u origin feature/<nom>
 - Création d’une release GitHub
 
 - Mise à jour automatique des images Docker Hub
+
+
+
+## Partie 2 – Dockerisation du projet
+
+### 2.1 Introduction
+
+L’objectif de la dockerisation est de permettre un déploiement reproductible, portable et compatible avec un pipeline CI/CD.
+
+Le projet utilise trois conteneurs principaux :
+
+| Service  | Technologie          | Description                         |
+| -------- | -------------------- | ----------------------------------- |
+| frontend | React + Vite         | Servi via Nginx                     |
+| backend  | Go 1.22              | API REST + accès base de données    |
+| database | PostgreSQL (à venir) | Conteneur pour stockage des données |
+
+### 2.2 Dockerfile Backend (Go)
+
+Fichier : `backend/Dockerfile`
+```dockerfile
+# -------------------------
+# Build stage
+# -------------------------
+FROM golang:1.22-alpine AS builder
+
+WORKDIR /app
+
+# Copy go.mod and go.sum first (layer caching)
+COPY go.mod go.sum ./
+RUN go mod download
+
+# Copy the rest of the backend code
+COPY . .
+
+# Build the Go binary
+RUN go build -o server ./cmd/server
+
+# -------------------------
+# Runtime stage
+# -------------------------
+FROM alpine:3.19
+
+WORKDIR /app
+
+# Copy the compiled binary
+COPY --from=builder /app/server .
+
+# Copy migrations (if the binary needs them)
+COPY migrations ./migrations
+
+EXPOSE 8080
+
+CMD ["./server"]
+```
+
+Justification: 
+
+- Multi-stage build pour réduire la taille de l’image finale.
+
+- Compilation avec `golang:alpine`.
+
+- Exécution dans une image Alpine légère.
+
+- Migration copiée pour utilisation par le backend.
+
+### 2.3 Dockerfile Frontend (React + Vite)
+
+Fichier : `frontend/Dockerfile`
+```dockerfile
+# -------------------------
+# Build stage
+# -------------------------
+FROM node:20-alpine AS builder
+
+WORKDIR /app
+
+COPY package.json package-lock.json ./
+RUN npm install
+
+COPY . .
+RUN npm run build
+
+# -------------------------
+# Production stage
+# -------------------------
+FROM nginx:alpine
+
+# Copy build output to nginx HTML dir
+COPY --from=builder /app/dist /usr/share/nginx/html
+
+# Expose nginx default port
+EXPOSE 80
+
+CMD ["nginx", "-g", "daemon off;"]
+```
+
+Justification:
+
+- Build séparé → dossier `dist/` généré par Vite.
+
+- Nginx pour servir la SPA statique.
+
+- Image optimisée pour production.
+
+### 2.4 Tests locaux des Dockerfiles
+
+Backend :
+```bash
+docker build -t christmas-backend ./backend
+docker run -p 8080:8080 christmas-backend
+```
+
+> **⚠️ Note :** Le backend nécessite que la variable d’environnement `DATABASE_URL` soit définie pour pouvoir se connecter à la base de données.
+> Sans cette variable, le conteneur plante avec une erreur `panic: environment variable DATABASE_URL is not set`.
+> Pour les tests locaux, il est recommandé d’utiliser docker-compose afin de lancer également la base de données et de passer correctement la variable au backend.
+
+Frontend :
+```bash
+docker build -t christmas-frontend ./frontend
+docker run -p 3000:80 christmas-frontend
+```
+
+> ✅ Le frontend fonctionne correctement seul, il est servi par Nginx sur le port 3000.
+
+
+### 2.5 Résumé de la dockerisation
+
+- Le backend et le frontend sont isolés dans des conteneurs.
+
+- Le frontend est servi par Nginx, le backend par un binaire Go.
+
+- Les images sont prêtes pour CI/CD et publication sur Docker Hub.
+
+- Prochaine étape : `docker-compose` pour orchestrer les services et la base de données.
