@@ -295,3 +295,134 @@ docker run -p 3000:80 christmas-frontend
 - Les images sont prêtes pour CI/CD et publication sur Docker Hub.
 
 - Prochaine étape : `docker-compose` pour orchestrer les services et la base de données.
+
+## Partie 3 – Orchestration avec Docker Compose
+
+### 3.1 Introduction
+
+Pour tester l’ensemble des services localement et faciliter le déploiement, nous utilisons **Docker Compose**.  
+
+Il permet de lancer **simultanément** le frontend, le backend et la base de données PostgreSQL, avec les variables d’environnement correctement configurées.
+
+### 3.2 Création de Docker Compose
+
+Fichier : `docker-compose.yml`
+```yaml
+version: "3.9"
+
+services:
+  db:
+    image: postgres:16-alpine
+    container_name: christmas-db
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: christmas
+    ports:
+      - "5432:5432"
+    volumes:
+      - db_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: christmas-backend
+    environment:
+      DATABASE_URL: postgres://postgres:postgres@db:5432/christmas?sslmode=disable
+    ports:
+      - "8080:8080"
+    depends_on:
+      db:
+        condition: service_healthy
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: christmas-frontend
+    ports:
+      - "3000:80"
+    environment:
+      VITE_API_URL: http://backend:8080
+    depends_on:
+      - backend
+
+volumes:
+  db_data:
+```
+
+
+### 3.3 Explications
+
+- db (PostgreSQL)
+
+    - Stockage persistant avec db_data
+
+    - Healthcheck pour garantir que la base est prête avant de démarrer le backend
+
+- backend (Go API)
+
+    - Connecté à la DB via DATABASE_URL
+
+    - Dépend de la DB (depends_on) pour attendre qu’elle soit opérationnelle
+
+- frontend (React + Nginx)
+
+    - Utilise la variable VITE_API_URL pour pointer vers le backend
+
+    - Appels API internes dans React utilisent cette variable pour fonctionner dans Docker
+
+- Ports exposés
+
+    - Frontend : 3000
+
+    - Backend : 8080
+
+    - PostgreSQL : 5432
+
+- Volumes
+
+    - Permet de garder la DB persistante entre les redémarrages
+
+### 3.4 Lancer le stack
+
+Depuis la racine du projet :
+```bash
+docker-compose up --build
+```
+
+- Tous les services sont construits et lancés.
+
+- Frontend → http://localhost:3000
+
+- Backend → http://localhost:8080/api/people
+
+Pour arrêter :
+```bash
+docker-compose down
+```
+
+- Ajouter -v pour supprimer également le volume de la DB.
+
+### 3.5 Vérification
+
+- Le frontend doit s’afficher correctement.
+
+- Les appels API depuis le frontend doivent retourner des données JSON depuis le backend.
+
+- La base PostgreSQL doit être opérationnelle et accessible par le backend.
+
+### 3.6 Résumé
+
+- Docker Compose permet de lancer l’ensemble du projet en une seule commande.
+
+- Frontend, backend et DB sont isolés mais communiquent correctement.
+
+- Cette configuration est prête pour être intégrée à un pipeline CI/CD.
+
