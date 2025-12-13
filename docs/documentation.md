@@ -426,3 +426,233 @@ docker-compose down
 
 - Cette configuration est prête pour être intégrée à un pipeline CI/CD.
 
+## Partie 4 – Pipeline CI/CD avec GitHub Actions
+
+### 4.1 Introduction
+
+L’objectif de cette étape est d’automatiser :
+
+- La construction des images Docker pour le frontend et le backend
+- Les tests (unitaires ou e2e si disponibles)
+- Le push des images sur Docker Hub
+- Le déploiement vers un environnement pré-production ou production
+- La création automatique d’une release GitHub lors d’un merge sur `main`
+
+### 4.2 Pré-requis
+
+1. **Compte Docker Hub** pour publier les images  
+2. **Secrets GitHub** configurés dans le dépôt :  
+
+| Secret                  | Description                                      |
+|-------------------------|--------------------------------------------------|
+| DOCKER_HUB_USERNAME      | Nom d’utilisateur Docker Hub                     |
+| DOCKER_HUB_ACCESS_TOKEN  | Token d’accès Docker Hub                          |
+
+### 4.3 Workflow GitHub Actions
+
+Fichier : `.github/workflows/ci-cd.yml`
+```yaml
+name: CI/CD Pipeline
+
+on:
+  push:
+    branches:
+      - develop
+      - main
+
+env:
+  DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
+  DOCKERHUB_PASSWORD: ${{ secrets.DOCKERHUB_PASSWORD }}
+  IMAGE_FRONTEND: christmas-frontend
+  IMAGE_BACKEND: christmas-backend
+
+jobs:
+  build-and-push:
+    runs-on: ubuntu-latest
+    steps:
+      # 1. Checkout repo
+      - name: Checkout repository
+        uses: actions/checkout@v3
+
+      # 2. Set up Docker Buildx
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      # 3. Log in to Docker Hub
+      - name: Log in to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ env.DOCKERHUB_USERNAME }}
+          password: ${{ env.DOCKERHUB_PASSWORD }}
+
+      # 4. Build and push frontend
+      - name: Build & push frontend
+        uses: docker/build-push-action@v5
+        with:
+          context: ./frontend
+          file: ./frontend/Dockerfile
+          push: true
+          tags: ${{ env.DOCKERHUB_USERNAME }}/${{ env.IMAGE_FRONTEND }}:latest
+
+      # 5. Build and push backend
+      - name: Build & push backend
+        uses: docker/build-push-action@v5
+        with:
+          context: ./backend
+          file: ./backend/Dockerfile
+          push: true
+          tags: ${{ env.DOCKERHUB_USERNAME }}/${{ env.IMAGE_BACKEND }}:latest
+
+  deploy-preprod:
+    runs-on: ubuntu-latest
+    needs: build-and-push
+    if: github.ref == 'refs/heads/develop'
+    steps:
+      - name: Deploy to preprod
+        run: |
+          echo "Déploiement préprod à mettre en place sur votre plateforme (Render, Railway, etc.)"
+          # Ici tu ajoutes la commande pour déployer avec Docker ou via l'API du provider
+
+  deploy-prod:
+    runs-on: ubuntu-latest
+    needs: build-and-push
+    if: github.ref == 'refs/heads/main'
+    steps:
+      - name: Tag & create GitHub release
+        uses: ncipollo/release-action@v1
+        with:
+          tag: v${{ github.run_number }}
+          name: Release ${{ github.run_number }}
+          draft: false
+          prerelease: false
+
+      - name: Deploy to production
+        run: |
+          echo "Déploiement prod à mettre en place sur votre plateforme (Render, Railway, etc.)"
+          # Ici tu ajoutes la commande pour déployer avec Docker ou via l'API du provider
+```
+
+### 4.4 Explications
+
+1. Déclenchement du workflow
+
+    - Sur develop → build + push Docker Hub (pré-prod)
+
+    - Sur main → build + push Docker Hub + release GitHub (prod)
+
+2. Docker Build et Push
+
+    - Images backend et frontend sont construites et taguées latest
+
+    - Elles sont ensuite poussées sur Docker Hub pour un déploiement ultérieur
+
+3. Création de Release
+
+    - Lors d’un merge sur main, une release GitHub est créée automatiquement avec un tag basé sur le numéro du run.
+
+4. Secrets GitHub
+
+    - DOCKER_HUB_USERNAME et DOCKER_HUB_ACCESS_TOKEN permettent la connexion sécurisée à Docker Hub.
+
+### 4.5 Résultat attendu
+
+- À chaque push sur develop → images Docker mises à jour sur Docker Hub
+
+- À chaque merge sur main → images Docker mises à jour + release GitHub créée
+
+- Pré-requis pour un déploiement sur un provider cloud (Render, Railway, etc.)
+
+## Plan complet – Étapes restantes pour finaliser le TP DevOps
+
+### 1. Gestion des environnements (préprod / prod)
+
+- Décider :
+
+    - develop → préproduction
+
+    - main → production
+
+- Configurer les variables d’environnement par environnement
+
+### 2. Création automatique des releases GitHub
+
+- Ajouter la création de tag automatique dans la CI
+
+- Générer une release GitHub sur merge main
+
+- Vérifier :
+
+    - tag visible (v1.0.0 ou vX)
+
+    - release créée automatiquement
+
+### 3. Déploiement de l’application (cloud)
+
+- Choisir un provider (Render / Railway / autre)
+
+- Déployer :
+
+    - frontend
+
+    - backend
+
+    - base de données
+
+- Utiliser les images Docker Hub
+
+- Configurer les variables d’environnement
+
+- Obtenir une URL publique
+
+- Vérifier que l’app fonctionne à distance
+
+### 4. Documentation finale (`docs/documentation.md`)
+
+- Architecture globale
+
+- Git workflow
+
+- Docker & docker-compose
+
+- CI/CD
+
+- Déploiement cloud
+
+- Variables d’environnement
+
+- Choix techniques (pourquoi ces outils)
+
+### 5. Õptionnel - Bonus
+
+- Monitoring (logs, healthcheck)
+
+- Kubernetes
+
+- Déploiement on-premise
+
+- Tests e2e intégrés à la CI
+
+- Reverse proxy Nginx
+
+## Limitations et contraintes rencontrées
+
+### 1. Contraintes de temps
+
+Le projet a été réalisé dans un temps limité, en parallèle d’autres modules académiques et d’obligations personnelles.  
+
+Cette contrainte de temps a nécessité des choix pragmatiques dans les outils et les architectures retenues, en privilégiant des solutions simples, stables et déjà maîtrisées, plutôt que des approches plus avancées ou expérimentales.
+
+### 2. Courbe de compréhension
+
+Bien que les concepts DevOps abordés dans ce projet aient été vus en cours, leur mise en œuvre complète dans un contexte réel (CI/CD, Docker multi-services, gestion des environnements, automatisation des releases) a nécessité un temps d’appropriation important.
+
+Certaines parties ont demandé des phases de recherche, de tests et de corrections successives avant d’obtenir un pipeline fonctionnel et reproductible.
+
+### 3. Contraintes de santé
+
+Des contraintes de santé ponctuelles ont également eu un impact sur la disponibilité et la capacité de travail durant certaines périodes du projet.  
+Ces contraintes ont limité le temps continu pouvant être consacré au développement et à la configuration, imposant une organisation plus segmentée du travail.
+
+### 4. Perspectives et finalités
+
+Avec plus de temps et de disponibilité, les étapes discutées au préalable pourraient être appliquées.
